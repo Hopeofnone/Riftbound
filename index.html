@@ -13,7 +13,7 @@
 --cardbg:#ECE8E1;--cardink:#14202A;--cw:clamp(50px,min(5vw,8.6vh),90px);--cut:10px;
 --disp:"Barlow Condensed","Arial Narrow",system-ui,sans-serif}
 :root{--fbody:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif}
-@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--slate:#E9E6E0;--deep:#DCD8D0;--panel:#F5F3EF;--panel2:#ECE8E1;--line:#C9C3B8;--line2:#B0A99D;--bone:#14202A;--mut:#56626C;--dim:#7B858E;--cyan:#0E8C80;--cyan2:#0E8C80}}
+:root{color-scheme:dark}
 :root[data-theme="dark"]{--slate:#0F1923}
 html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}*,*::before,*::after{box-sizing:inherit}
 body{margin:0;background:var(--slate);color:var(--bone);font:14px/1.45 var(--fbody);height:100%;-webkit-font-smoothing:antialiased}
@@ -72,6 +72,7 @@ label{display:flex;flex-direction:column;gap:.3rem;margin:.55rem 0;color:var(--m
 /* ---------- card face ---------- */
 .cf{position:relative;width:var(--cw);aspect-ratio:744/1039;border-radius:calc(var(--cw)*.05);overflow:hidden;background:var(--cardbg);color:var(--cardink);font-size:calc(var(--cw)*.105);line-height:1.1;box-shadow:0 2px 0 rgba(0,0,0,.35)}
 .cf.big{--cw:min(250px,100%);font-size:13px}
+.cf.land{aspect-ratio:1038/744;width:calc(var(--cw)*1.395)}.cf.land.big{width:100%;max-width:340px}.cf.art img{image-rendering:auto}
 .cf.art img{display:block;width:100%;height:100%;object-fit:cover;pointer-events:none}
 .cf.txt{border-top:calc(var(--cw)*.07) solid var(--dc,var(--colorless));padding:.35em .4em}
 .cf .ch{display:flex;justify-content:space-between;align-items:center}
@@ -156,8 +157,9 @@ label{display:flex;flex-direction:column;gap:.3rem;margin:.55rem 0;color:var(--m
 @keyframes pulse{0%,100%{outline-color:var(--red)}50%{outline-color:rgba(255,70,85,.35)}}
 .att{font-size:.68rem;background:var(--panel2);border-left:2px solid var(--gold);padding:.05rem .3rem;margin-top:2px;max-width:var(--cw);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .lg.exh{filter:grayscale(.8) brightness(.6)}
-.ghost{position:fixed;pointer-events:none;z-index:50;opacity:.9;transform:translate(-50%,-50%) rotate(-4deg)}
-body.dragging [data-drop].dropok{outline:2px dashed var(--cyan);outline-offset:-4px}
+.ghost,.ghost *{transition:none!important;animation:none!important}.ghost{position:fixed;left:0;top:0;margin:0;pointer-events:none;z-index:1000;opacity:.92;will-change:transform;box-shadow:0 10px 24px rgba(0,0,0,.5)}
+[data-drag]{touch-action:none;-webkit-user-select:none;user-select:none}body.dragging{cursor:grabbing;-webkit-user-select:none;user-select:none}body.dragging *{cursor:grabbing!important}
+body.dragging [data-drop].droppable:not(.tbl){outline:2px dashed rgba(62,224,207,.55);outline-offset:-4px}body.dragging [data-drop].over:not(.tbl){outline:3px solid var(--cyan);outline-offset:-4px;background-color:rgba(62,224,207,.12)}body.dragging [data-drop].dropok{outline:2px dashed var(--cyan);outline-offset:-4px}
 .ccol{display:flex;flex-direction:column;gap:.4rem;padding:.6rem .5rem;justify-content:center;background:var(--deep);border-left:1px solid var(--line)}
 .ccol button{font-size:.82rem}
 
@@ -2288,7 +2290,7 @@ function activateBF(pi,bi,k){const b=G.bfs[bi];const A=(cardFx(b.cid).bfActs||[]
 function nocturneCheck(pi,cards,fromLook){(cards||[]).filter(c=>cardFx(c.cid).nocturne).forEach(c=>{G.run.push({steps:[{k:'optPay',cost:{e:0,p:['rainbow']},steps:[{k:'nocturnePlay',id:c.iid}]}],i:0,ctx:{pi,label:'Nocturne'},pre:{},ans:{}})})}
 
 // ===================== ART (local, optional) =====================
-const ART={};let artDB=null;
+const ART={};const ART_HQ={};let artDB=null;
 if(window.HOSTED_ART===true){CARDS.forEach(c=>{ART[c.im]='art/'+c.i+'.webp'});['mech','sandsoldier','shadowclone','tentacle','recruit','sprite','bird','gold','reflection'].forEach(t=>ART['TOKEN:'+t]='art/token-'+t+'.webp')}
 let ARTLOAD=null; // {pct,label} while the hosted art pack downloads
 async function loadArtPack(url,version){
@@ -2303,11 +2305,37 @@ async function loadArtPack(url,version){
     for(const f of files){const nm=f.name.split('/').pop().replace(/\.webp$/i,'');const key=nm.startsWith('token-')?'TOKEN:'+nm.slice(6):byCode[nm];if(!key)continue;const blob=new Blob([await f.async('arraybuffer')],{type:'image/webp'});ART[key]=URL.createObjectURL(blob);save.push([key,blob]);if(++k%60===0){ARTLOAD.pct=90+Math.round(k/files.length*10);renderArtChip()}}
     try{const tx=artDB.transaction('art','readwrite');const st=tx.objectStore('art');save.forEach(([kk,b])=>st.put(b,kk));st.put(version,'__pack')}catch(e){}
     ARTLOAD=null;render()}catch(e){ARTLOAD={err:true};renderArtChip()}}
+// ---- HD art: art-hq/manifest.json lists zip parts (each small enough for GitHub's web uploader).
+// Parts download one at a time in the background, are cached in IndexedDB, and resume if interrupted.
+async function loadHQ(){
+  let man;try{const r=await fetch('art-hq/manifest.json',{cache:'no-cache'});if(!r.ok)return;man=await r.json()}catch(e){return}
+  if(!man||!Array.isArray(man.parts)||!man.parts.length)return;
+  const ver=String(man.version||'1');const getK=k=>new Promise(r=>{try{const q=artDB.transaction('art').objectStore('art').get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)}catch(e){r(null)}});
+  try{if(!artDB)artDB=await idb()}catch(e){}
+  const prev=artDB?await getK('__hqver'):null;
+  if(prev&&prev!==ver){ // new art version: drop old HD cache
+    try{const keys=await new Promise(r=>{const q=artDB.transaction('art').objectStore('art').getAllKeys();q.onsuccess=()=>r(q.result);q.onerror=()=>r([])});
+      const tx=artDB.transaction('art','readwrite');keys.filter(k=>String(k).startsWith('hq:')||String(k).startsWith('__hqpart:')).forEach(k=>tx.objectStore('art').delete(k))}catch(e){}
+    Object.keys(ART_HQ).forEach(k=>{URL.revokeObjectURL(ART_HQ[k]);delete ART_HQ[k]})}
+  const todo=[];for(const p of man.parts){if(!(artDB&&await getK('__hqpart:'+p.file)===ver))todo.push(p)}
+  if(!todo.length)return;
+  try{if(!window.JSZip)await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s)});
+    const byCode={};CARDS.forEach(c=>byCode[c.i]=c.im);const total=todo.reduce((a,p)=>a+(p.size||1),0);let done=0;
+    for(const p of todo){
+      const resp=await fetch('art-hq/'+p.file,{cache:'force-cache'});if(!resp.ok)throw new Error('HTTP '+resp.status);
+      const buf=await resp.arrayBuffer();done+=(p.size||1);ARTLOAD={pct:Math.min(99,Math.round(done/total*100)),hq:true};renderArtChip();
+      const zip=await JSZip.loadAsync(buf);const save=[];
+      for(const f of Object.values(zip.files)){if(f.dir||!/\.webp$/i.test(f.name))continue;const nm=f.name.split('/').pop().replace(/\.webp$/i,'');const key=byCode[nm];if(!key)continue;
+        const blob=new Blob([await f.async('arraybuffer')],{type:'image/webp'});if(ART_HQ[key])URL.revokeObjectURL(ART_HQ[key]);ART_HQ[key]=URL.createObjectURL(blob);save.push(['hq:'+key,blob])}
+      try{const tx=artDB.transaction('art','readwrite');const st=tx.objectStore('art');save.forEach(([k,b])=>st.put(b,k));st.put(ver,'__hqpart:'+p.file);st.put(ver,'__hqver');await new Promise(r=>{tx.oncomplete=r;tx.onerror=r;tx.onabort=r})}catch(e){}
+      if(!(DR&&DR.moved))render()}
+    ARTLOAD=null;renderArtChip();if(!(DR&&DR.moved))render()}
+  catch(e){ARTLOAD=null;renderArtChip()}}
 function renderArtChip(){let el=document.getElementById('artchip');if(!el){el=document.createElement('div');el.id='artchip';el.setAttribute('role','status');document.body.appendChild(el)}
-  if(!ARTLOAD){el.remove();return}el.innerHTML=ARTLOAD.err?"Couldn't load the card art pack. Cards show as text frames.":`Loading card art <b>${ARTLOAD.pct}%</b><i style="--p:${ARTLOAD.pct}%"></i>`}
+  if(!ARTLOAD){el.remove();return}el.innerHTML=ARTLOAD.err?"Couldn't load the card art pack. Cards show as text frames.":`Loading ${ARTLOAD.hq?'HD ':''}card art <b>${ARTLOAD.pct}%</b><i style="--p:${ARTLOAD.pct}%"></i>`}
 function idb(){return new Promise((res,rej)=>{try{const r=indexedDB.open('rb-sim-art',1);r.onupgradeneeded=()=>r.result.createObjectStore('art');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}catch(e){rej(e)}})}
 async function loadSavedArt(){try{artDB=await idb();const st=artDB.transaction('art').objectStore('art');const req=st.openCursor();
-  await new Promise(r=>{req.onsuccess=()=>{const c=req.result;if(c){if(c.key!=='__pack')ART[c.key]=URL.createObjectURL(c.value);c.continue()}else r()};req.onerror=r})}catch(e){}render()}
+  await new Promise(r=>{req.onsuccess=()=>{const c=req.result;if(c){const k=String(c.key);if(k.startsWith('hq:'))ART_HQ[k.slice(3)]=URL.createObjectURL(c.value);else if(!k.startsWith('__'))ART[k]=URL.createObjectURL(c.value);c.continue()}else r()};req.onerror=r})}catch(e){}render()}
 const TOKEN_ART=['mech','sandsoldier','shadowclone','tentacle','bomb','recruit','sprite','bird','gold','reflection'];
 function artKey(name){const base=name.replace(/\.[a-z0-9]+$/i,'');if(CARD_IM.has(base))return base;const t=base.toLowerCase().replace(/[^a-z]/g,'');if(TOKEN_ART.includes(t))return'TOKEN:'+t;return null}
 const CARD_IM=new Set(CARDS.map(c=>c.im));
@@ -2320,8 +2348,8 @@ async function importArt(files){let n=0,t=0;const save=[];const list=[...files];
 async function importZip(file,save){try{if(!window.JSZip){await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s)})}
   const z=await JSZip.loadAsync(file);const ents=Object.values(z.files).filter(e=>!e.dir&&/\.(png|jpe?g|webp)$/i.test(e.name));
   for(const e of ents){const nm=e.name.split('/').pop();const k=artKey(nm);if(!k)continue;const blob=await e.async('blob');const typed=new Blob([blob],{type:/\.webp$/i.test(nm)?'image/webp':/\.png$/i.test(nm)?'image/png':'image/jpeg'});ART[k]=URL.createObjectURL(typed);save.push([k,typed])}}catch(err){toast("Couldn't read that .zip file.")}}
-function artFor(cid){const c=BYID[cid];if(!c)return null;if(ART[c.im])return ART[c.im];if((c.st||[]).includes('Token')||String(cid).startsWith('TK-')){const t='TOKEN:'+c.n.toLowerCase().replace(/[^a-z]/g,'').replace(/token$/,'');if(ART[t])return ART[t];const base=CARDS.find(x=>(x.st||[]).includes('Token')&&x.n.toLowerCase()===c.n.toLowerCase());if(base&&ART[base.im])return ART[base.im]}return null}
-async function clearArt(){Object.keys(ART).forEach(k=>{URL.revokeObjectURL(ART[k]);delete ART[k]});try{if(!artDB)artDB=await idb();artDB.transaction('art','readwrite').objectStore('art').clear()}catch(e){}render()}
+function artFor(cid){const c=BYID[cid];if(!c)return null;if(ART_HQ[c.im])return ART_HQ[c.im];if(ART[c.im])return ART[c.im];if((c.st||[]).includes('Token')||String(cid).startsWith('TK-')){const t='TOKEN:'+c.n.toLowerCase().replace(/[^a-z]/g,'').replace(/token$/,'');if(ART[t])return ART[t];const base=CARDS.find(x=>(x.st||[]).includes('Token')&&x.n.toLowerCase()===c.n.toLowerCase());if(base&&ART[base.im])return ART[base.im]}return null}
+async function clearArt(){Object.keys(ART).forEach(k=>{URL.revokeObjectURL(ART[k]);delete ART[k]});Object.keys(ART_HQ).forEach(k=>{URL.revokeObjectURL(ART_HQ[k]);delete ART_HQ[k]});try{if(!artDB)artDB=await idb();artDB.transaction('art','readwrite').objectStore('art').clear()}catch(e){}render()}
 // ===================== FORMAT =====================
 const esc=s=>String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 function fmt(t){return esc(t).replace(/:rb_energy_(\d+):/g,'<span class="ic en">$1</span>').replace(/:rb_rune_rainbow:/g,'<span class="ic pw any"></span>')
@@ -2334,6 +2362,7 @@ function face(cid,{o=null,back=false,big=false}={}){const c=BYID[cid];if(back||!
   const art=artFor(cid);const isU=o&&o.kind==='unit';const m=isU?might(o):c.m;const md=isU&&m!==(c.m??0);
   const bd=o?`${o.dmg?`<i class="bd dmg">${o.dmg}</i>`:''}${o.buff?'<i class="bd bf">+1</i>':''}${o.stun?'<i class="bd st">stun</i>':''}${role(o)==='att'?'<i class="bd at">atk</i>':role(o)==='def'?'<i class="bd df">def</i>':''}`:'';
   const mv=(c.m!=null||isU)?`<span class="mg ${md?'mod':''}">${m??0}</span>`:'';
+  if(art&&c.t==='Battlefield')return`<div class="cf art land ${big?'big':''}"><img src="${art}" alt="${esc(c.full)}" draggable="false"></div>`;
   if(art)return`<div class="cf art ${big?'big':''}"><img src="${art}" alt="${esc(c.full)}" draggable="false">${isU?mv:''}<div class="bds">${bd}</div></div>`;
   const k=o?kwOf(o):c.kw;
   return`<div class="cf txt ${domCls(c)} ${big?'big':''}"><div class="ch"><span>${costHTML(c)}</span>${mv}</div><div class="cn">${esc(c.n)}</div>${c.s?`<div class="cs">${esc(c.s)}</div>`:''}<div class="ct">${esc(c.t)}</div>${big?`<div class="cx">${fmt(c.x)}</div>`:`<div class="ck">${esc(kwLine(k))}</div>`}<div class="bds">${bd}</div></div>`}
@@ -2516,8 +2545,9 @@ function bfDialog(bi){const b=G.bfs[bi];const c=BYID[b.cid];const A=cardFx(c.i).
 let DR=null;
 document.addEventListener('pointerdown',e=>{if(screen!=='game'||e.button!==0)return;const t=e.target.closest('[data-drag]');if(!t)return;DR={el:t,x:e.clientX,y:e.clientY,kind:t.dataset.drag,id:t.dataset.i,p:+t.dataset.p,moved:false}});
 document.addEventListener('pointermove',e=>{if(!DR)return;const dx=e.clientX-DR.x,dy=e.clientY-DR.y;
-  if(!DR.moved&&Math.hypot(dx,dy)>7){DR.moved=true;const g=DR.el.cloneNode(true);g.className+=' ghost';g.style.width=DR.el.offsetWidth+'px';document.body.appendChild(g);DR.ghost=g;document.body.classList.add('dragging');markDrops(true)}
+  if(!DR.moved&&Math.hypot(dx,dy)>7){DR.moved=true;const g=DR.el.cloneNode(true);g.className+=' ghost';g.style.width=DR.el.offsetWidth+'px';g.style.height=DR.el.offsetHeight+'px';g.style.transform=`translate(${e.clientX-DR.el.offsetWidth/2}px,${e.clientY-DR.el.offsetHeight/2}px)`;document.body.appendChild(g);DR.ghost=g;document.body.classList.add('dragging');markDrops(true)}
   if(DR.moved){DR.ghost.style.transform=`translate(${e.clientX-DR.el.offsetWidth/2}px,${e.clientY-DR.el.offsetHeight/2}px)`;const z=dropAt(e.clientX,e.clientY);document.querySelectorAll('.over').forEach(x=>x!==z&&x.classList.remove('over'));if(z)z.classList.add('over')}});
+document.addEventListener('pointercancel',()=>{if(DR&&DR.ghost)DR.ghost.remove();DR=null;document.body.classList.remove('dragging');markDrops(false)});
 document.addEventListener('pointerup',e=>{if(!DR)return;const d=DR;DR=null;if(!d.moved)return;d.ghost.remove();document.body.classList.remove('dragging');markDrops(false);document.querySelectorAll('.over').forEach(x=>x.classList.remove('over'));
   const z=dropAt(e.clientX,e.clientY);if(!z)return;suppressClick=true;setTimeout(()=>suppressClick=false,0);onDrop(d,z)});
 let suppressClick=false;
@@ -2587,7 +2617,7 @@ document.addEventListener('keydown',e=>{if(screen!=='game'||document.getElementB
   if((e.ctrlKey||e.metaKey)&&k==='z'||k==='z'){e.preventDefault();undo();if(G&&G.tokens)Object.values(G.tokens).forEach(t=>BYID[t.i]=t);render()}
   else if(k==='s'){if(G.resp)act(()=>respPass(G.resp.pri))();else if(G.showdown)act(()=>sdPass(G.showdown.focus))()}
   else if(k==='e'){act(endTurn)()}else if(k==='escape'){if(G.prep)act(cancelPrep)();SEL=[];render()}});
-render();loadSavedArt().then(()=>{if(window.HOSTED_ART==='pack')loadArtPack('art.zip',window.ART_PACK_VERSION||'1')});
+render();loadSavedArt().then(async()=>{if(window.HOSTED_ART==='pack')await loadArtPack('art.zip',window.ART_PACK_VERSION||'1');loadHQ()});
 
 // ===================== LOBBY · CHAMPION SELECT · DECK BUILDER =====================
 let PICKP=0,PICKSEL=null,PICKDOM='All',PICKQ='';
@@ -2620,7 +2650,7 @@ function renderSetup(){const saved=loadSaved();
   <label class="cb"><input type="checkbox" data-a="respond" ${SETUP.respond?'checked':''}>Pass priority after every card</label>
   <label class="cb"><input type="checkbox" data-a="mdmg" ${SETUP.manualDamage?'checked':''}>Choose combat damage yourself</label>
   <label>Victory score<input type="number" min="1" max="20" value="${SETUP.victory}" data-a="victory"></label>
-  <div class="art"><span class="hint">${(()=>{const n=CARDS.filter(c=>ART[c.im]).length;return n?`Art for ${n} of ${CARDS.length} cards`:'No card art loaded'})()}</span>${window.HOSTED_ART?'':`<label class="btn">Load art folder<input type="file" webkitdirectory multiple data-a="art" hidden></label><label class="btn">Load .zip or images<input type="file" accept="image/*,.zip" multiple data-a="art" hidden></label>${Object.keys(ART).length?'<button data-a="clearart">Remove art</button>':''}`}</div>
+  <div class="art"><span class="hint">${(()=>{const n=CARDS.filter(c=>ART[c.im]).length;return n?`Art for ${n} of ${CARDS.length} cards`:'No card art loaded'})()}</span>${`<label class="btn">Load art folder<input type="file" webkitdirectory multiple data-a="art" hidden></label><label class="btn">Load .zip or images<input type="file" accept="image/*,.zip" multiple data-a="art" hidden></label>${Object.keys(ART).length?'<button data-a="clearart">Remove art</button>':''}`}</div>
   <button class="go big" data-a="start" ${ok?'':'disabled'}>Start game</button></section></div>`}
 
 // ---------- champion select ----------
