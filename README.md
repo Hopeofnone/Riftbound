@@ -6,9 +6,9 @@ Open `index.html` (or the GitHub Pages link for this repository) to play. Card a
 
 ## Card art
 
-`art.zip` holds the card art from the saved gallery (loaded and cached in the browser on first visit).
-`art-hq/` holds the cards for which the gallery contained full-resolution images (744x1039). Those load in the background and replace the small versions.
-To add more full-resolution cards later, put WebP files named like `RAD-001.webp` into a new zip part inside `art-hq/` and list it in `art-hq/manifest.json`.
+`art.zip` holds the original small card art (269px) so the game starts instantly.
+`art-hq/` holds every card upscaled to 744x1039 (battlefields 1038x744) in zip parts under 20 MB each, so they fit GitHub's web uploader.
+They download in the background, are cached in the browser, and replace the small versions.
 
 ## Disclaimer
 
